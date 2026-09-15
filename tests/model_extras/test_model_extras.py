@@ -19,6 +19,7 @@ from vllm_omni.model_extras import (
     get_extra_body_params,
     get_extra_output_params,
     get_output_tensor_range,
+    get_reference_image_resizer,
     get_x_to_text_model_family,
     resize_reference_images,
     should_init_extra_args_for_non_diffusion_stages,
@@ -351,6 +352,32 @@ def test_reference_image_resizer_hook_owns_geometry() -> None:
     )
 
     assert resized is image
+
+
+@pytest.mark.core_model
+@pytest.mark.cpu
+def test_reference_image_resizer_is_resolved_once_not_per_image(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Resolving a bare model reference reads the checkpoint's metadata. A server
+    # preparing one reference image per request must not pay that on every
+    # request, so the policy is resolved once and the bound resizer reused.
+    lookups: list[tuple[str, str | None]] = []
+
+    def fake_resolve(model: str, revision: str | None = None) -> str:
+        lookups.append((model, revision))
+        return "UnregisteredPipeline"
+
+    monkeypatch.setattr("vllm_omni.diffusion.data.resolve_model_class_name", fake_resolve)
+    image = Image.new("RGB", (48, 32))
+
+    for _ in range(3):
+        resize_reference_images(None, image, width=96, height=64, model="org/model")
+    assert len(lookups) == 3
+
+    lookups.clear()
+    resizer = get_reference_image_resizer(None, model="org/model")
+    for _ in range(3):
+        assert resizer(image, width=96, height=64).size == (96, 64)
+    assert lookups == [("org/model", None)]
 
 
 @pytest.mark.core_model

@@ -8,6 +8,7 @@ import math
 import time
 from collections.abc import Mapping
 from dataclasses import dataclass
+from functools import cached_property
 from http import HTTPStatus
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, cast
@@ -39,7 +40,8 @@ from vllm_omni.entrypoints.openai.video_api_utils import (
 )
 from vllm_omni.inputs.data import OmniDiffusionSamplingParams, OmniTextPrompt
 from vllm_omni.metrics import count_video_frames
-from vllm_omni.model_extras import get_video_generation_defaults, resize_reference_images
+from vllm_omni.model_extras import get_reference_image_resizer, get_video_generation_defaults
+from vllm_omni.model_extras.registry import BoundReferenceImageResizer
 from vllm_omni.model_extras.video_generation import VideoGenerationDefaults
 from vllm_omni.outputs.output_metadata import (
     DiffusionMetadataMapping,
@@ -168,24 +170,22 @@ class OmniOpenAIServingVideo:
         if self._stage_configs is None and stage_configs is not None:
             self._stage_configs = stage_configs
 
-    def _resize_reference_images(
-        self,
-        images: Image.Image | list[Image.Image],
-        *,
-        width: int,
-        height: int,
-    ) -> Image.Image | list[Image.Image]:
-        """Prepare reference images using the active pipeline's resize policy."""
+    @cached_property
+    def _reference_image_resizer(self) -> BoundReferenceImageResizer:
+        """The active pipeline's reference-image resize policy.
+
+        Resolving the policy reads the checkpoint's metadata when the engine
+        config does not already name the pipeline class, so it is resolved once
+        and reused, the way the boolean gate it replaces was. Only applying the
+        policy is per request.
+        """
         od_config = self._resolve_diffusion_od_config()
         model_class_name = None if od_config is None else getattr(od_config, "model_class_name", None)
         model = getattr(od_config, "model", None) if od_config is not None else None
         model = model or self.model_name
         revision = getattr(od_config, "revision", None) if od_config is not None else None
-        return resize_reference_images(
+        return get_reference_image_resizer(
             model_class_name,
-            images,
-            width=width,
-            height=height,
             model=None if model is None else str(model),
             revision=revision,
         )
@@ -332,7 +332,7 @@ class OmniOpenAIServingVideo:
                     detail=f"This diffusion model supports {expected_duration:g}-second clips only.",
                 )
         if input_image is not None and vp.width is not None and vp.height is not None:
-            input_image = self._resize_reference_images(
+            input_image = self._reference_image_resizer(
                 input_image,
                 width=vp.width,
                 height=vp.height,

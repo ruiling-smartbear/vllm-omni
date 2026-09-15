@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
+from functools import partial
 from typing import Any, Literal, Protocol
 
 from PIL import Image
@@ -130,6 +131,18 @@ class ReferenceImageResizer(Protocol):
         height: int,
         model: str | None = None,
         revision: str | None = None,
+    ) -> Image.Image | list[Image.Image]: ...
+
+
+class BoundReferenceImageResizer(Protocol):
+    """A ``ReferenceImageResizer`` with its model and revision already bound."""
+
+    def __call__(
+        self,
+        images: Image.Image | list[Image.Image],
+        *,
+        width: int,
+        height: int,
     ) -> Image.Image | list[Image.Image]: ...
 
 
@@ -457,16 +470,13 @@ def should_preserve_reference_image_size(
     return bool(resolver and resolver(model=model, revision=revision))
 
 
-def resize_reference_images(
+def get_reference_image_resizer(
     model_class_name: str | None,
-    images: Image.Image | list[Image.Image],
     *,
-    width: int,
-    height: int,
     model: str | None,
     revision: str | None = None,
-) -> Image.Image | list[Image.Image]:
-    """Resize reference images using the model-declared policy.
+) -> BoundReferenceImageResizer:
+    """Resolve the model-declared reference-image resize policy.
 
     Resolution order:
 
@@ -478,6 +488,11 @@ def resize_reference_images(
     This keeps the dimension input path uniform -- every request still carries
     the standard ``width``/``height`` -- while letting models with custom
     geometry declare how the shared layer should prepare the reference image.
+
+    Resolving ``model_class_name`` from a bare model reference reads the
+    checkpoint's metadata, so callers serving many requests should resolve the
+    policy once and reuse the returned callable rather than calling
+    ``resize_reference_images`` per request.
     """
     if model_class_name is None and model is not None:
         from vllm_omni.diffusion.data import resolve_model_class_name
@@ -490,7 +505,25 @@ def resize_reference_images(
             resizer = passthrough_reference_image_resizer
         else:
             resizer = default_reference_image_resizer
-    return resizer(images, width=width, height=height, model=model, revision=revision)
+    return partial(resizer, model=model, revision=revision)
+
+
+def resize_reference_images(
+    model_class_name: str | None,
+    images: Image.Image | list[Image.Image],
+    *,
+    width: int,
+    height: int,
+    model: str | None,
+    revision: str | None = None,
+) -> Image.Image | list[Image.Image]:
+    """Resize reference images using the model-declared policy.
+
+    One-shot convenience over :func:`get_reference_image_resizer`; it resolves
+    the policy on every call.
+    """
+    resizer = get_reference_image_resizer(model_class_name, model=model, revision=revision)
+    return resizer(images, width=width, height=height)
 
 
 def should_init_extra_args_for_non_diffusion_stages(model_class_name: str | None) -> bool:

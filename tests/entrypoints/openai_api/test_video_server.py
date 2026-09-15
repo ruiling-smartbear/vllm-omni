@@ -707,6 +707,44 @@ def test_i2v_resize_hook_receives_raw_reference_image(monkeypatch):
     }
 
 
+def test_i2v_resize_policy_is_resolved_once_across_requests(monkeypatch):
+    # The review case: the policy lookup reads checkpoint metadata, so serving
+    # N requests must not resolve it N times.
+    engine = FakeAsyncOmni()
+    engine.get_diffusion_od_config = lambda: SimpleNamespace(
+        model="org/model",
+        model_class_name=None,
+        revision="pinned-revision",
+    )
+    lookups = []
+
+    def fake_resolve(model, revision=None):
+        lookups.append((model, revision))
+        return "HookPipeline"
+
+    monkeypatch.setattr("vllm_omni.diffusion.data.resolve_model_class_name", fake_resolve)
+    monkeypatch.setitem(
+        registry._EXTRA_SPECS,
+        "HookPipeline",
+        {"reference_image_resizer": lambda images, **kwargs: images},
+    )
+    handler = OmniOpenAIServingVideo.for_diffusion(
+        diffusion_engine=engine,
+        model_name="fallback/model",
+    )
+
+    for index in range(3):
+        asyncio.run(
+            handler._run_and_extract(
+                VideoGenerationRequest(prompt="A bear playing with yarn.", width=96, height=64),
+                f"resolved-once-{index}",
+                reference_image=ReferenceImage(Image.new("RGB", (48, 32))),
+            )
+        )
+
+    assert lookups == [("org/model", "pinned-revision")]
+
+
 def test_i2v_extra_params_dimensions_preserve_input_image_geometry(test_client, mocker: MockerFixture):
     image_bytes = _make_test_image_bytes((48, 48))
     mocker.patch(
