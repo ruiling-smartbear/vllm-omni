@@ -1649,10 +1649,19 @@ class LancePipeline(BagelPipeline):
         if trajectory_payload:
             payload["trajectory"] = trajectory_payload
 
+        # The first latent frame is pinned: the sampler holds ``timestep = 0`` at
+        # those tokens and restores them after every step, so a replay that
+        # applied the step's sigma there would score different velocities than the
+        # rollout did.  Which tokens they are travels with the trajectory; the
+        # pinned values themselves are already in the recorded latents.
+        replay = {
+            "frame_condition_token_indexes": frame_condition_token_indexes.detach().cpu().unsqueeze(0),
+        }
+
         return DiffusionOutput(
             output={
                 "payload": payload,
-                "metadata": {"video": {"shape": out_shape}},
+                "metadata": {"video": {"shape": out_shape}, "rl": replay},
             },
             stage_durations=self.stage_durations if hasattr(self, "stage_durations") else None,
         )
