@@ -1111,6 +1111,12 @@ class LancePipeline(BagelPipeline):
 
         img = self._decode_image_from_latent(self.bagel, self.vae, latents[0], image_shape)
 
+        # Upstream places the noise QUERY block at the reference VAE block's
+        # positions, so its rotary anchor is the value *before* that block - not
+        # the text length a reimplementation would assume.  A reinforcement-
+        # learning trainer replaying this trajectory needs it, so export it.
+        rope_anchor = torch.tensor([float(rope_before_vae)])
+
         payload = {"image": img}
         # Trajectory payload for RL: the trainer replays these exact latents and
         # timesteps, so it needs them whenever the caller asked for them.  The
@@ -1127,7 +1133,7 @@ class LancePipeline(BagelPipeline):
         return DiffusionOutput(
             output={
                 "payload": payload,
-                "metadata": {"image": {"shape": image_shape}},
+                "metadata": {"image": {"shape": image_shape}, "rl": {"rope_anchor": rope_anchor}},
             },
             stage_durations=self.stage_durations if hasattr(self, "stage_durations") else None,
         )
