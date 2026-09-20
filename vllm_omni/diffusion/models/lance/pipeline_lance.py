@@ -684,16 +684,36 @@ class LancePipeline(BagelPipeline):
         first_prompt = req.prompts[0]
         if isinstance(first_prompt, dict):
             prompt = first_prompt.get("prompt") or ""
+            user_text = first_prompt.get("user_text")
             extra_args = first_prompt.get("extra_args") or {}
         else:
             prompt = str(first_prompt)
+            user_text = None
             extra_args = {}
+        if user_text is None:
+            # Accept either the bare caption or an already rendered chat
+            # template (``render_lance_prompt`` output).  The segments below
+            # stay authoritative, so a rendered template is split back apart
+            # instead of being nested inside a second copy of the scaffolding.
+            user_text = prompt
+            if "<|im_start|>user\n" in user_text:
+                user_text = user_text.rpartition("<|im_start|>user\n")[2].partition("<|im_end|>")[0]
         # Sampling-side extras override prompt-side.
         sp_extra = getattr(req.sampling_params, "extra_args", {}) or {}
         extra_args = {**extra_args, **sp_extra}
 
-        # Video shape.  T = number of RGB frames (1..121), H/W in pixels.
-        T = int(extra_args.get("num_frames", 25))
+        # Video shape.  T = number of RGB frames (1..121), H/W in pixels.  The
+        # request's own sampling params win: a recipe that declares
+        # ``pipeline.num_frames``/``height``/``width`` means its rollout and its
+        # replay both work in that shape, so falling back to this node's defaults
+        # would generate a different latent block than the trainer reconstructs.
+        from vllm_omni.diffusion.request import resolve_video_num_frames
+
+        T = resolve_video_num_frames(
+            getattr(req.sampling_params, "num_frames", None),
+            default_num_frames=int(extra_args.get("num_frames", 25)),
+            is_dummy_run=req.is_dummy_run(),
+        )
         H = int(req.sampling_params.height or extra_args.get("video_height", 480))
         W = int(req.sampling_params.width or extra_args.get("video_width", 768))
         max_lat = self.bagel.max_latent_size
@@ -1127,6 +1147,14 @@ class LancePipeline(BagelPipeline):
         image_input = mm_data.get("first_frame")
         if image_input is None:
             raise ValueError("i2v requires multi_modal_data.first_frame.")
+        # A conditioning stream reaches a pipeline as the transport's media list
+        # (``multi_modal_data[modality]`` holds the request's media), so unwrap
+        # the single frame here rather than rejecting the only shape a rollout
+        # can produce.  ``_forward_image_edit`` normalizes the same way.
+        if isinstance(image_input, (list, tuple)):
+            if len(image_input) != 1:
+                raise ValueError(f"i2v expects exactly one first frame, got {len(image_input)}.")
+            image_input = image_input[0]
 
         # Resolve image to (H, W, 3) uint8 RGB, then wrap as 1-frame video.
         if isinstance(image_input, _PILImage.Image):
@@ -1143,10 +1171,20 @@ class LancePipeline(BagelPipeline):
         sp_extra = getattr(req.sampling_params, "extra_args", {}) or {}
         extra_args = {**extra_args, **sp_extra}
 
-        # Output video shape — independent of input image dims.
-        num_frames_out = int(extra_args.get("num_frames", 61))
-        out_H = int(extra_args.get("video_height", 480))
-        out_W = int(extra_args.get("video_width", 848))
+        # Output video shape — independent of input image dims, but not of the
+        # request: a recipe that declares its shape means its rollout and its
+        # replay both work in that shape, and a node default instead would
+        # generate a latent block the trainer cannot reconstruct (61 frames at
+        # 848 wide against a 25-frame 768-wide replay is one concrete failure).
+        from vllm_omni.diffusion.request import resolve_video_num_frames
+
+        num_frames_out = resolve_video_num_frames(
+            getattr(req.sampling_params, "num_frames", None),
+            default_num_frames=int(extra_args.get("num_frames", 61)),
+            is_dummy_run=req.is_dummy_run(),
+        )
+        out_H = int(req.sampling_params.height or extra_args.get("video_height", 480))
+        out_W = int(req.sampling_params.width or extra_args.get("video_width", 848))
         origin_fps = float(extra_args.get("origin_fps", 24.0))
 
         # Upstream Lance i2v default is cfg_text_scale=4.0.  Note: vllm-omni's
@@ -1417,6 +1455,14 @@ class LancePipeline(BagelPipeline):
         video_input = mm_data.get("video")
         if video_input is None:
             raise ValueError("video_edit requires multi_modal_data.video.")
+        # The transport hands a conditioning stream as its media list; unwrap the
+        # single reference video so a rollout request is not rejected for the
+        # only shape it can produce.  ``_forward_image_edit`` normalizes the same
+        # way for its reference images.
+        if isinstance(video_input, (list, tuple)):
+            if len(video_input) != 1:
+                raise ValueError(f"video_edit expects exactly one reference video, got {len(video_input)}.")
+            video_input = video_input[0]
         # Resolve to raw (T, H, W, 3) uint8 ndarray + origin_fps so the
         # upstream-style bucket resize + frame sampler can replicate the
         # exact preprocessing path.  If the caller passed an already-decoded
