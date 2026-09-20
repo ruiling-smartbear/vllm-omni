@@ -1079,7 +1079,7 @@ class LancePipeline(BagelPipeline):
             # before unpacking via ``**gen_input_lat``.
             for _drop in ("key_values_lens", "packed_indexes", "packed_key_value_indexes"):
                 gen_input_lat.pop(_drop, None)
-            latents, *_ = self.bagel.generate_image(
+            latents, trajectory_latents, trajectory_timesteps, trajectory_log_probs = self.bagel.generate_image(
                 past_key_values=gen_context["past_key_values"],
                 cfg_text_past_key_values=cfg_text_context["past_key_values"]
                 if cfg_text_scale > 1.0
@@ -1101,12 +1101,32 @@ class LancePipeline(BagelPipeline):
                     cfg_img_lat["cfg_packed_position_ids"] if cfg_img_lat is not None else None
                 ),
                 # ``cfg_img_*`` index/lens kwargs removed — same as above.
+                # Same denoising contract as the image path: the scheduler the
+                # caller installed (RL replaces it with an SDE one) steps the
+                # sampler and records the trajectory when asked.
+                return_trajectory_latents=req.sampling_params.return_trajectory_latents,
+                scheduler=self.scheduler,
+                scheduler_kwargs=self.scheduler_kwargs,
             )
 
         img = self._decode_image_from_latent(self.bagel, self.vae, latents[0], image_shape)
+
+        payload = {"image": img}
+        # Trajectory payload for RL: the trainer replays these exact latents and
+        # timesteps, so it needs them whenever the caller asked for them.  The
+        # per-step frames are not decoded here; only the rollout's final output is.
+        trajectory_payload = {}
+        if trajectory_latents:
+            trajectory_payload["latents"] = torch.stack(trajectory_latents)
+            trajectory_payload["timesteps"] = torch.stack(trajectory_timesteps)
+        if trajectory_log_probs:
+            trajectory_payload["log_probs"] = torch.stack(trajectory_log_probs)
+        if trajectory_payload:
+            payload["trajectory"] = trajectory_payload
+
         return DiffusionOutput(
             output={
-                "payload": {"image": img},
+                "payload": payload,
                 "metadata": {"image": {"shape": image_shape}},
             },
             stage_durations=self.stage_durations if hasattr(self, "stage_durations") else None,
@@ -1366,7 +1386,7 @@ class LancePipeline(BagelPipeline):
             # before unpacking via ``**gen_input_lat``.
             for _drop in ("key_values_lens", "packed_indexes", "packed_key_value_indexes"):
                 gen_input_lat.pop(_drop, None)
-            latents, *_ = self.bagel.generate_image(
+            latents, trajectory_latents, trajectory_timesteps, trajectory_log_probs = self.bagel.generate_image(
                 past_key_values=gen_context["past_key_values"],
                 cfg_text_past_key_values=cfg_text_context["past_key_values"]
                 if cfg_text_scale > 1.0
@@ -1389,13 +1409,33 @@ class LancePipeline(BagelPipeline):
                 ),
                 # ``cfg_img_*`` index/lens kwargs removed — same as above.
                 frame_condition_token_indexes=frame_condition_token_indexes,
+                # Same denoising contract as the image path: the scheduler the
+                # caller installed (RL replaces it with an SDE one) steps the
+                # sampler and records the trajectory when asked.
+                return_trajectory_latents=req.sampling_params.return_trajectory_latents,
+                scheduler=self.scheduler,
+                scheduler_kwargs=self.scheduler_kwargs,
             )
 
         frames_np = self._decode_video_from_latent(self.bagel, self.vae, latents[0], out_shape)
         frames = [Image.fromarray(f) for f in frames_np]
+
+        payload = {"video": frames}
+        # Trajectory payload for RL: the trainer replays these exact latents and
+        # timesteps, so it needs them whenever the caller asked for them.  The
+        # per-step frames are not decoded here; only the rollout's final video is.
+        trajectory_payload = {}
+        if trajectory_latents:
+            trajectory_payload["latents"] = torch.stack(trajectory_latents)
+            trajectory_payload["timesteps"] = torch.stack(trajectory_timesteps)
+        if trajectory_log_probs:
+            trajectory_payload["log_probs"] = torch.stack(trajectory_log_probs)
+        if trajectory_payload:
+            payload["trajectory"] = trajectory_payload
+
         return DiffusionOutput(
             output={
-                "payload": {"video": frames},
+                "payload": payload,
                 "metadata": {"video": {"shape": out_shape}},
             },
             stage_durations=self.stage_durations if hasattr(self, "stage_durations") else None,
@@ -1632,7 +1672,7 @@ class LancePipeline(BagelPipeline):
             # before unpacking via ``**gen_input_lat``.
             for _drop in ("key_values_lens", "packed_indexes", "packed_key_value_indexes"):
                 gen_input_lat.pop(_drop, None)
-            latents, *_ = self.bagel.generate_image(
+            latents, trajectory_latents, trajectory_timesteps, trajectory_log_probs = self.bagel.generate_image(
                 past_key_values=gen_context["past_key_values"],
                 cfg_text_past_key_values=cfg_text_context["past_key_values"]
                 if cfg_text_scale > 1.0
@@ -1654,13 +1694,33 @@ class LancePipeline(BagelPipeline):
                     cfg_img_lat["cfg_packed_position_ids"] if cfg_img_lat is not None else None
                 ),
                 # ``cfg_img_*`` index/lens kwargs removed — same as above.
+                # Same denoising contract as the image path: the scheduler the
+                # caller installed (RL replaces it with an SDE one) steps the
+                # sampler and records the trajectory when asked.
+                return_trajectory_latents=req.sampling_params.return_trajectory_latents,
+                scheduler=self.scheduler,
+                scheduler_kwargs=self.scheduler_kwargs,
             )
 
         frames_np = self._decode_video_from_latent(self.bagel, self.vae, latents[0], video_shape)
         frames = [Image.fromarray(f) for f in frames_np]
+
+        payload = {"video": frames}
+        # Trajectory payload for RL: the trainer replays these exact latents and
+        # timesteps, so it needs them whenever the caller asked for them.  The
+        # per-step frames are not decoded here; only the rollout's final video is.
+        trajectory_payload = {}
+        if trajectory_latents:
+            trajectory_payload["latents"] = torch.stack(trajectory_latents)
+            trajectory_payload["timesteps"] = torch.stack(trajectory_timesteps)
+        if trajectory_log_probs:
+            trajectory_payload["log_probs"] = torch.stack(trajectory_log_probs)
+        if trajectory_payload:
+            payload["trajectory"] = trajectory_payload
+
         return DiffusionOutput(
             output={
-                "payload": {"video": frames},
+                "payload": payload,
                 "metadata": {"video": {"shape": video_shape}},
             },
             stage_durations=self.stage_durations if hasattr(self, "stage_durations") else None,
