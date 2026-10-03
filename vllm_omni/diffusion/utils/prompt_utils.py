@@ -1,11 +1,11 @@
 import torch
 
-#: Keys a diffusion prompt may use to carry pre-tokenized prompt ids.
-#: ``OmniCustomPrompt`` declares ``prompt_ids``; ``prompt_token_ids`` is accepted
-#: as an alias because the executor's emptiness check and the existing
-#: HunyuanImage3 writer both use that spelling.
-PROMPT_ID_KEYS = ("prompt_ids", "prompt_token_ids")
-NEGATIVE_PROMPT_ID_KEYS = ("negative_prompt_ids", "negative_prompt_token_ids")
+#: Keys a diffusion prompt uses to carry caller-tokenized prompt ids, as
+#: declared by ``OmniCustomPrompt``. The native vLLM spelling
+#: ``prompt_token_ids`` is deliberately not read: multi-stage models use it to
+#: hand an AR stage's tokens to their diffusion stage.
+PROMPT_ID_KEYS = ("prompt_ids",)
+NEGATIVE_PROMPT_ID_KEYS = ("negative_prompt_ids",)
 
 
 def _single_prompt_ids(ids: object, *, key: str) -> list[int]:
