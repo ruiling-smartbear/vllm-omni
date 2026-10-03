@@ -157,3 +157,9 @@ def test_prepare_prompts_ids_match_the_equivalent_text(mocker: MockerFixture):
     assert from_ids[2] == from_text[2]
     # The text path is the one that never tokenizes twice.
     tokenizer.encode.assert_called_once_with("hi", add_special_tokens=False)
+
+
+def test_declares_pre_tokenized_prompt_ids_support():
+    # Engine admission rejects OmniCustomPrompt.prompt_ids for pipelines that do
+    # not declare this; direct pipeline tests above bypass that check.
+    assert BagelPipeline.supports_pre_tokenized_prompt_ids is True

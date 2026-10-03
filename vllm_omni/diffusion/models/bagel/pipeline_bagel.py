@@ -308,6 +308,11 @@ class BagelPipeline(nn.Module, SupportsComponentDiscovery, DiffusionPipelineProf
     This pipeline is self-contained and uses the ported Bagel core files.
     """
 
+    # Reads ``OmniCustomPrompt.prompt_ids`` / ``negative_prompt_ids`` verbatim
+    # instead of tokenizing ``prompt``; the diffusion engine admits requests
+    # carrying those fields only for pipelines that declare this. Inherited by
+    # ``LancePipeline``.
+    supports_pre_tokenized_prompt_ids: ClassVar[bool] = True
     _dit_modules: ClassVar[list[str]] = ["language_model.model"]
     _encoder_modules: ClassVar[list[str]] = []
     _vae_modules: ClassVar[list[str]] = ["vae"]

@@ -15,11 +15,10 @@ def test_reads_prompt_ids():
     assert pre_tokenized_prompt_ids({"prompt_ids": [1, 2, 3]}) == [1, 2, 3]
 
 
-def test_reads_prompt_token_ids_alias():
-    assert pre_tokenized_prompt_ids({"prompt_token_ids": [4, 5]}) == [4, 5]
-
-
-def test_prompt_ids_wins_over_the_alias():
+def test_native_prompt_token_ids_are_not_read():
+    # ``prompt_token_ids`` belongs to native vLLM / AR-stage hand-off, not to
+    # ``OmniCustomPrompt``.
+    assert pre_tokenized_prompt_ids({"prompt_token_ids": [4, 5]}) is None
     assert pre_tokenized_prompt_ids({"prompt_ids": [1], "prompt_token_ids": [2]}) == [1]
 
 
@@ -40,8 +39,8 @@ def test_reads_negative_prompt_ids():
     assert pre_tokenized_negative_prompt_ids({"negative_prompt_ids": [7]}) == [7]
 
 
-def test_reads_negative_prompt_token_ids_alias():
-    assert pre_tokenized_negative_prompt_ids({"negative_prompt_token_ids": [8]}) == [8]
+def test_native_negative_prompt_token_ids_are_not_read():
+    assert pre_tokenized_negative_prompt_ids({"negative_prompt_token_ids": [8]}) is None
 
 
 def test_positive_ids_are_not_read_as_negative_ids():
@@ -52,9 +51,8 @@ def test_negative_ids_are_not_read_as_positive_ids():
     assert pre_tokenized_prompt_ids({"negative_prompt_ids": [1]}) is None
 
 
-@pytest.mark.parametrize("key", ["prompt_ids", "prompt_token_ids"])
-def test_empty_ids_are_absent(key: str):
-    assert pre_tokenized_prompt_ids({key: []}) is None
+def test_empty_ids_are_absent():
+    assert pre_tokenized_prompt_ids({"prompt_ids": []}) is None
 
 
 def test_text_only_prompt_has_no_ids():

@@ -119,3 +119,7 @@ def test_t2v_still_uses_the_text_without_ids():
         pipeline._forward_t2v(_t2v_request({"prompt": "a running fox"}))
 
     assert captured == ["a running fox", ""]
+
+
+def test_inherits_pre_tokenized_prompt_ids_support():
+    assert LancePipeline.supports_pre_tokenized_prompt_ids is True
