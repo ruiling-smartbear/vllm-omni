@@ -17,6 +17,8 @@ def _single_prompt_ids(ids: object, *, key: str) -> list[int]:
         if len(ids) != 1:
             raise ValueError(f"`{key}` holds {len(ids)} prompts, but a diffusion request carries a single prompt")
         ids = first
+        if not ids:
+            raise ValueError(f"`{key}` must be a non-empty list or tuple of token ids, got {ids!r}")
     return [int(token_id) for token_id in ids]
 
 

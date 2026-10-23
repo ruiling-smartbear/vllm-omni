@@ -30,6 +30,16 @@ def test_unwraps_a_single_batched_prompt():
     assert pre_tokenized_prompt_ids({"prompt_ids": [[1, 2, 3]]}) == [1, 2, 3]
 
 
+@pytest.mark.parametrize("ids", [[[]], [()], ([],), ((),)])
+@pytest.mark.parametrize(
+    ("key", "read_ids"),
+    [("prompt_ids", pre_tokenized_prompt_ids), ("negative_prompt_ids", pre_tokenized_negative_prompt_ids)],
+)
+def test_rejects_empty_batched_prompt(ids, key, read_ids):
+    with pytest.raises(ValueError, match=f"`{key}` must be a non-empty list or tuple of token ids"):
+        read_ids({key: ids})
+
+
 def test_rejects_more_than_one_prompt():
     with pytest.raises(ValueError, match="carries a single prompt"):
         pre_tokenized_prompt_ids({"prompt_ids": [[1], [2]]})
