@@ -287,7 +287,7 @@ def _edit_replay_condition(
     # The ViT segment runs in "und" mode, so only the reference's VAE rows belong
     # to the generation expert; the rest of the sequence is the text pathway.
     # ``gen_indexes`` index the VAE segment, so they shift by the ViT row count.
-    ref_is_gen = torch.zeros(ref_rows.shape[0], dtype=torch.bool)
+    ref_is_gen = torch.zeros(ref_rows.shape[0], dtype=torch.bool, device=vae["gen_indexes"].device)
     ref_is_gen[vit["rows"].shape[0] + vae["gen_indexes"].to(torch.long)] = True
 
     gen_tail = {

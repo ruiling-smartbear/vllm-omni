@@ -9,12 +9,15 @@ list or tuple as a video's frames.  The two are told apart by what the single
 item is.
 """
 
+import pytest
 from PIL import Image
 
 from vllm_omni.diffusion.models.lance.pipeline_lance import (
     unwrap_single_media_stream,
     unwrap_single_video_stream,
 )
+
+pytestmark = [pytest.mark.core_model, pytest.mark.cpu]
 
 
 def test_single_item_wrapper_is_unwrapped():
