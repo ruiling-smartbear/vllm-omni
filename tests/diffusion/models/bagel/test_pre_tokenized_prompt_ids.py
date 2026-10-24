@@ -81,12 +81,15 @@ def test_forward_prefers_prompt_ids_over_the_text(mocker: MockerFixture):
     assert prepared_prompts[0] == POSITIVE_IDS
 
 
+@pytest.mark.parametrize("native", [False, True])
 @pytest.mark.parametrize("masked", [False, True])
-def test_forward_uses_negative_prompt_ids(mocker: MockerFixture, masked):
+def test_forward_uses_negative_prompt_ids(mocker: MockerFixture, masked, native):
     prepared_prompts: list = []
     pipeline = _build_pipeline(mocker, prepared_prompts, stop_after=3)
 
-    prompt = {"prompt_ids": POSITIVE_IDS, "negative_prompt_ids": NEGATIVE_IDS}
+    positive_key = "prompt_token_ids" if native else "prompt_ids"
+    negative_key = "negative_prompt_token_ids" if native else "negative_prompt_ids"
+    prompt = {positive_key: POSITIVE_IDS, negative_key: NEGATIVE_IDS}
     if masked:
         prompt.update(prompt_mask=torch.tensor([1, 1, 0]), negative_prompt_mask=torch.tensor([0, 1, 1]))
     _forward_text_to_image(pipeline, prompt)

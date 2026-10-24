@@ -1,11 +1,8 @@
 import torch
 
-#: Keys a diffusion prompt uses to carry caller-tokenized prompt ids, as
-#: declared by ``OmniCustomPrompt``. The native vLLM spelling
-#: ``prompt_token_ids`` is deliberately not read: multi-stage models use it to
-#: hand an AR stage's tokens to their diffusion stage.
-PROMPT_ID_KEYS = ("prompt_ids",)
-NEGATIVE_PROMPT_ID_KEYS = ("negative_prompt_ids",)
+# OmniCustomPrompt spelling takes precedence over native vLLM token IDs.
+PROMPT_ID_KEYS = ("prompt_ids", "prompt_token_ids")
+NEGATIVE_PROMPT_ID_KEYS = ("negative_prompt_ids", "negative_prompt_token_ids")
 
 
 def _single_prompt_ids(ids: object, *, key: str) -> list[int]:

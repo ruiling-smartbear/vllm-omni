@@ -101,12 +101,15 @@ def test_t2v_prefers_prompt_ids_over_the_text():
     assert captured == [PROMPT_IDS]
 
 
+@pytest.mark.parametrize("native", [False, True])
 @pytest.mark.parametrize("masked", [False, True])
-def test_t2v_uses_negative_pre_tokenized_prompt_ids(masked):
+def test_t2v_uses_negative_pre_tokenized_prompt_ids(masked, native):
     captured: list = []
     pipeline = _t2v_pipeline(captured, stop_after=2)
 
-    prompt = {"prompt_ids": PROMPT_IDS, "negative_prompt_ids": NEGATIVE_PROMPT_IDS}
+    positive_key = "prompt_token_ids" if native else "prompt_ids"
+    negative_key = "negative_prompt_token_ids" if native else "negative_prompt_ids"
+    prompt = {positive_key: PROMPT_IDS, negative_key: NEGATIVE_PROMPT_IDS}
     if masked:
         prompt.update(
             prompt_mask=torch.tensor([1] * (len(PROMPT_IDS) - 1) + [0]),
