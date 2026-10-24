@@ -101,14 +101,22 @@ def test_t2v_prefers_prompt_ids_over_the_text():
     assert captured == [PROMPT_IDS]
 
 
-def test_t2v_uses_negative_pre_tokenized_prompt_ids():
+@pytest.mark.parametrize("masked", [False, True])
+def test_t2v_uses_negative_pre_tokenized_prompt_ids(masked):
     captured: list = []
     pipeline = _t2v_pipeline(captured, stop_after=2)
 
+    prompt = {"prompt_ids": PROMPT_IDS, "negative_prompt_ids": NEGATIVE_PROMPT_IDS}
+    if masked:
+        prompt.update(
+            prompt_mask=torch.tensor([1] * (len(PROMPT_IDS) - 1) + [0]),
+            negative_prompt_mask=torch.tensor([0] + [1] * (len(NEGATIVE_PROMPT_IDS) - 1)),
+        )
     with pytest.raises(StopAfterTextPreprocessError):
-        pipeline._forward_t2v(_t2v_request({"prompt_ids": PROMPT_IDS, "negative_prompt_ids": NEGATIVE_PROMPT_IDS}))
+        pipeline._forward_t2v(_t2v_request(prompt))
 
-    assert captured == [PROMPT_IDS, NEGATIVE_PROMPT_IDS]
+    expected = [PROMPT_IDS[:-1], NEGATIVE_PROMPT_IDS[1:]] if masked else [PROMPT_IDS, NEGATIVE_PROMPT_IDS]
+    assert captured == expected
 
 
 def test_t2v_still_uses_the_text_without_ids():
