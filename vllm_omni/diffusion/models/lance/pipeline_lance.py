@@ -650,6 +650,16 @@ class LancePipeline(BagelPipeline):
             "<|im_end|>\n<|im_start|>assistant\n",
         )
 
+    def _edit_replay_text_cap(self, instruction: str, separator: str, max_sequence_length: int | None) -> int:
+        """Validate the replay tail before running model or media preprocessing."""
+        text_cap = 128 if max_sequence_length is None else max_sequence_length
+        tail_length = len(self.tokenizer.encode(instruction, add_special_tokens=False)) + len(
+            self.tokenizer.encode(separator, add_special_tokens=False)
+        )
+        if tail_length > text_cap:
+            raise ValueError(f"edit replay segment 'gen_tail' has {tail_length} tokens, above the {text_cap} cap.")
+        return text_cap
+
     def _raw_text_prefill(
         self,
         ctx: dict,
@@ -1112,6 +1122,10 @@ class LancePipeline(BagelPipeline):
         image_input = mm_data.get("img2img") or mm_data.get("image")
         if image_input is None:
             raise ValueError("image_edit requires multi_modal_data.img2img (or .image).")
+        seg1_str, seg5_str = self._segment_strings("image_edit", "image")
+        replay: list | None = [] if req.sampling_params.return_trajectory_latents else None
+        if replay is not None:
+            text_cap = self._edit_replay_text_cap(user_text, seg5_str, req.sampling_params.max_sequence_length)
         if not isinstance(image_input, list):
             image_input = [image_input]
         image_input = [Image.open(im) if isinstance(im, str) else im for im in image_input]
@@ -1177,13 +1191,8 @@ class LancePipeline(BagelPipeline):
         # Single-slot cache shared between gen + cfg branches so the Wan2.2
         # VAE's ``mu + std * randn_like(std)`` sample is computed once.
         ref_latent_cache: list = []
-        # Rows a replaying trainer cannot rebuild are collected here and
-        # exported with the trajectory; see ``_edit_replay_condition``.
-        replay: list = []
 
         # ----- prefill segments in upstream order -----
-        seg1_str, seg5_str = self._segment_strings("image_edit", "image")
-
         # seg1: system + user header  (shared)
         self._raw_text_prefill(gen_context, seg1_str, collect=replay, collect_role="prefix")
         if cfg_text_scale > 1.0:
@@ -1308,17 +1317,9 @@ class LancePipeline(BagelPipeline):
 
         img = self._decode_image_from_latent(self.bagel, self.vae, latents[0], image_shape)
 
-        # Upstream places the noise QUERY block at the reference VAE block's
-        # positions, so its rotary anchor is the value *before* that block - not
-        # the text length a reimplementation would assume.  A reinforcement-
-        # learning trainer replaying this trajectory needs that, and the rows it
-        # cannot rebuild, so both travel with the output.
-        replay_condition = _edit_replay_condition(
-            replay,
-            gen_input_lat,
-            rope_before_vae,
-            text_cap=int(getattr(req.sampling_params, "max_sequence_length", None) or 128),
-        )
+        metadata = {"image": {"shape": image_shape}}
+        if replay is not None:
+            metadata["rl"] = _edit_replay_condition(replay, gen_input_lat, rope_before_vae, text_cap=text_cap)
 
         payload = {"image": img}
         # Trajectory payload for RL: the trainer replays these exact latents and
@@ -1336,7 +1337,7 @@ class LancePipeline(BagelPipeline):
         return DiffusionOutput(
             output={
                 "payload": payload,
-                "metadata": {"image": {"shape": image_shape}, "rl": replay_condition},
+                "metadata": metadata,
             },
             stage_durations=self.stage_durations if hasattr(self, "stage_durations") else None,
         )
@@ -1720,6 +1721,10 @@ class LancePipeline(BagelPipeline):
         video_input = mm_data.get("video")
         if video_input is None:
             raise ValueError("video_edit requires multi_modal_data.video.")
+        seg1_str, seg5_str = self._segment_strings("video_edit", "video")
+        replay: list | None = [] if req.sampling_params.return_trajectory_latents else None
+        if replay is not None:
+            text_cap = self._edit_replay_text_cap(user_text, seg5_str, req.sampling_params.max_sequence_length)
         # A conditioning stream arrives wrapped in the request's media list, but
         # ``list``/``tuple`` is also how a decoded frame sequence arrives, so only
         # a wrapper around something that is not a frame is unwrapped.
@@ -1832,16 +1837,11 @@ class LancePipeline(BagelPipeline):
 
         # Shared latent cache so gen + cfg branches see the same VAE sample.
         ref_latent_cache: list = []
-        # Rows a replaying trainer cannot rebuild are collected here and
-        # exported with the trajectory; see ``_edit_replay_condition``.
-        replay: list = []
 
         def _vae_transforms(_):
             return video_chw
 
         # ----- prefill segments in upstream order -----
-        seg1_str, seg5_str = self._segment_strings("video_edit", "video")
-
         # seg1: system + user header  (shared)
         self._raw_text_prefill(gen_context, seg1_str, collect=replay, collect_role="prefix")
         if cfg_text_scale > 1.0:
@@ -1953,15 +1953,9 @@ class LancePipeline(BagelPipeline):
         frames_np = self._decode_video_from_latent(self.bagel, self.vae, latents[0], video_shape)
         frames = [Image.fromarray(f) for f in frames_np]
 
-        # As on the image path: the noise QUERY block is anchored on the
-        # reference VAE block, and a replaying trainer cannot rebuild the
-        # reference's ViT/VAE rows, so both travel with the output.
-        replay_condition = _edit_replay_condition(
-            replay,
-            gen_input_lat,
-            rope_before_vae,
-            text_cap=int(getattr(req.sampling_params, "max_sequence_length", None) or 128),
-        )
+        metadata = {"video": {"shape": video_shape}}
+        if replay is not None:
+            metadata["rl"] = _edit_replay_condition(replay, gen_input_lat, rope_before_vae, text_cap=text_cap)
 
         payload = {"video": frames}
         # Trajectory payload for RL: the trainer replays these exact latents and
@@ -1979,7 +1973,7 @@ class LancePipeline(BagelPipeline):
         return DiffusionOutput(
             output={
                 "payload": payload,
-                "metadata": {"video": {"shape": video_shape}, "rl": replay_condition},
+                "metadata": metadata,
             },
             stage_durations=self.stage_durations if hasattr(self, "stage_durations") else None,
         )
