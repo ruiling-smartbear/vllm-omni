@@ -217,6 +217,19 @@ class _LanceVitCfg:
     hidden_size: int = 1280  # Qwen2.5-VL vision hidden (out_hidden_size=2048)
 
 
+def _pack_trajectory(
+    latents: list[torch.Tensor], timesteps: list[torch.Tensor], log_probs: list[torch.Tensor]
+) -> dict[str, torch.Tensor]:
+    """Stack recorded denoising tensors without decoding intermediate media."""
+    trajectory = {}
+    if latents:
+        trajectory["latents"] = torch.stack(latents)
+        trajectory["timesteps"] = torch.stack(timesteps)
+    if log_probs:
+        trajectory["log_probs"] = torch.stack(log_probs)
+    return trajectory
+
+
 def _edit_replay_condition(
     segments: list[dict],
     latent_input: dict,
@@ -1052,15 +1065,7 @@ class LancePipeline(BagelPipeline):
         logger.info("Lance t2v: decoded %d frames at %dx%d", len(frames), frames[0].width, frames[0].height)
 
         payload = {"video": frames}
-        # Trajectory payload for RL: the trainer replays these exact latents and
-        # timesteps, so it needs them whenever the caller asked for them.  The
-        # per-step frames are not decoded here; only the rollout's final video is.
-        trajectory_payload = {}
-        if trajectory_latents:
-            trajectory_payload["latents"] = torch.stack(trajectory_latents)
-            trajectory_payload["timesteps"] = torch.stack(trajectory_timesteps)
-        if trajectory_log_probs:
-            trajectory_payload["log_probs"] = torch.stack(trajectory_log_probs)
+        trajectory_payload = _pack_trajectory(trajectory_latents, trajectory_timesteps, trajectory_log_probs)
         if trajectory_payload:
             payload["trajectory"] = trajectory_payload
 
@@ -1322,15 +1327,7 @@ class LancePipeline(BagelPipeline):
             metadata["rl"] = _edit_replay_condition(replay, gen_input_lat, rope_before_vae, text_cap=text_cap)
 
         payload = {"image": img}
-        # Trajectory payload for RL: the trainer replays these exact latents and
-        # timesteps, so it needs them whenever the caller asked for them.  The
-        # per-step frames are not decoded here; only the rollout's final output is.
-        trajectory_payload = {}
-        if trajectory_latents:
-            trajectory_payload["latents"] = torch.stack(trajectory_latents)
-            trajectory_payload["timesteps"] = torch.stack(trajectory_timesteps)
-        if trajectory_log_probs:
-            trajectory_payload["log_probs"] = torch.stack(trajectory_log_probs)
+        trajectory_payload = _pack_trajectory(trajectory_latents, trajectory_timesteps, trajectory_log_probs)
         if trajectory_payload:
             payload["trajectory"] = trajectory_payload
 
@@ -1644,15 +1641,7 @@ class LancePipeline(BagelPipeline):
         frames = [Image.fromarray(f) for f in frames_np]
 
         payload = {"video": frames}
-        # Trajectory payload for RL: the trainer replays these exact latents and
-        # timesteps, so it needs them whenever the caller asked for them.  The
-        # per-step frames are not decoded here; only the rollout's final output is.
-        trajectory_payload = {}
-        if trajectory_latents:
-            trajectory_payload["latents"] = torch.stack(trajectory_latents)
-            trajectory_payload["timesteps"] = torch.stack(trajectory_timesteps)
-        if trajectory_log_probs:
-            trajectory_payload["log_probs"] = torch.stack(trajectory_log_probs)
+        trajectory_payload = _pack_trajectory(trajectory_latents, trajectory_timesteps, trajectory_log_probs)
         if trajectory_payload:
             payload["trajectory"] = trajectory_payload
 
@@ -1958,15 +1947,7 @@ class LancePipeline(BagelPipeline):
             metadata["rl"] = _edit_replay_condition(replay, gen_input_lat, rope_before_vae, text_cap=text_cap)
 
         payload = {"video": frames}
-        # Trajectory payload for RL: the trainer replays these exact latents and
-        # timesteps, so it needs them whenever the caller asked for them.  The
-        # per-step frames are not decoded here; only the rollout's final output is.
-        trajectory_payload = {}
-        if trajectory_latents:
-            trajectory_payload["latents"] = torch.stack(trajectory_latents)
-            trajectory_payload["timesteps"] = torch.stack(trajectory_timesteps)
-        if trajectory_log_probs:
-            trajectory_payload["log_probs"] = torch.stack(trajectory_log_probs)
+        trajectory_payload = _pack_trajectory(trajectory_latents, trajectory_timesteps, trajectory_log_probs)
         if trajectory_payload:
             payload["trajectory"] = trajectory_payload
 
