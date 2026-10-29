@@ -106,7 +106,7 @@ def test_ordinary_edit_skips_replay_for_long_instructions(edit_pipeline, mocker,
 
 
 @pytest.mark.parametrize("mode", ["image", "video"])
-@pytest.mark.parametrize(("text_cap", "tokens"), [(None, 3), (8, 3), (None, 126), (8, 6)])
+@pytest.mark.parametrize(("text_cap", "tokens"), [(None, 0), (2, 0), (None, 3), (8, 3), (None, 126), (8, 6)])
 @pytest.mark.parametrize("cfg_text_scale", [1.0, 4.0])
 def test_rl_edit_keeps_padded_replay_metadata(edit_pipeline, mode, text_cap, tokens, cfg_text_scale):
     request = edit_request(mode, tokens, export=True, text_cap=text_cap, cfg_text_scale=cfg_text_scale)
@@ -123,6 +123,25 @@ def test_rl_edit_keeps_padded_replay_metadata(edit_pipeline, mode, text_cap, tok
     assert replay["condition_ref_rows"].shape == (1, 4, 4)
     assert replay["condition_latent_positions"].shape == (1, 3, 2)
     assert set(result.output["payload"]["trajectory"]) == {"latents", "timesteps", "log_probs"}
+
+
+@pytest.mark.parametrize("export", [False, True])
+def test_empty_text_prefill_preserves_context(edit_pipeline, mocker, export):
+    cache = mocker.Mock()
+    ctx = {"kv_lens": [7], "ropes": [5], "past_key_values": cache}
+    segments: list[dict] | None = [] if export else None
+
+    edit_pipeline._raw_text_prefill(ctx, "", collect=segments, collect_role="gen_instruction")
+
+    edit_pipeline.bagel.forward_cache_update_text.assert_not_called()
+    assert ctx == {"kv_lens": [7], "ropes": [5], "past_key_values": cache}
+    if segments is not None:
+        assert len(segments) == 1
+        assert segments[0]["role"] == "gen_instruction"
+        for name in ("ids", "positions"):
+            assert segments[0][name].shape == (0,)
+            assert segments[0][name].dtype == torch.long
+            assert segments[0][name].device.type == "cpu"
 
 
 @pytest.mark.parametrize("mode", ["image", "video"])

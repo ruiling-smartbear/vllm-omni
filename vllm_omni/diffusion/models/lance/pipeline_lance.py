@@ -683,6 +683,14 @@ class LancePipeline(BagelPipeline):
         """Tokenize ``text_str`` (no bos/eos) and append to ``ctx`` KV cache."""
         text_ids = self.tokenizer.encode(text_str, add_special_tokens=False)
         if not text_ids:
+            if collect is not None:
+                collect.append(
+                    {
+                        "role": collect_role,
+                        "ids": torch.empty(0, dtype=torch.long),
+                        "positions": torch.empty(0, dtype=torch.long),
+                    }
+                )
             return
         curr_kvlen = ctx["kv_lens"][0]
         curr_rope = ctx["ropes"][0]
